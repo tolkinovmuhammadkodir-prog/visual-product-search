@@ -1,0 +1,13 @@
+torch
+pandas
+numpy
+Pillow
+faiss-cpu
+kagglehub
+transformers
+sentence-transformers
+gradio
+ftfy
+regex
+tqdm
+git+https://github.com/openai/CLIP.git
