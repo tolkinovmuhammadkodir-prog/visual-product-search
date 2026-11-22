@@ -98,39 +98,6 @@ def search_by_text(query, index, ordered_ids, df, model, top_k=5):
     return results.sort_values("rank_score", ascending=False).reset_index(drop=True)
 
 
-def hybrid_search(query, index, ordered_ids, df, model, gender=None, base_colour=None, top_k=5):
-    filtered_df = df.copy()
-    if gender:
-        filtered_df = filtered_df[filtered_df["gender"] == gender]
-    if base_colour:
-        filtered_df = filtered_df[filtered_df["baseColour"] == base_colour]
-    if filtered_df.empty:
-        logger.warning("No items match the metadata filters")
-        return filtered_df
-
-    filtered_ids = set(filtered_df["id"].tolist())
-    keep_positions = [i for i, pid in enumerate(ordered_ids) if pid in filtered_ids]
-    if not keep_positions:
-        return filtered_df.iloc[0:0]
-
-    sub_embeddings = np.stack([index.reconstruct(i) for i in keep_positions]).astype("float32")
-    sub_ids = [ordered_ids[i] for i in keep_positions]
-    sub_index = build_faiss_index(sub_embeddings)
-
-    text = clip.tokenize([query]).to(DEVICE)
-    with torch.no_grad():
-        text_features = model.encode_text(text)
-    text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-    query_vec = text_features.cpu().numpy().astype("float32")
-
-    k = min(top_k, len(sub_ids))
-    scores, indices = sub_index.search(query_vec, k)
-    result_ids = [sub_ids[i] for i in indices[0]]
-    results = filtered_df[filtered_df["id"].isin(result_ids)].copy()
-    results["rank_score"] = results["id"].map(dict(zip(result_ids, scores[0])))
-    return results.sort_values("rank_score", ascending=False).reset_index(drop=True)
-
-
 subset_df = df.head(5000).reset_index(drop=True)
 all_embeddings, ordered_ids = build_embeddings(subset_df, IMAGE_DIR, model, preprocess)
 index = build_faiss_index(all_embeddings)
