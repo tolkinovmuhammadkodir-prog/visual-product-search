@@ -34,8 +34,7 @@ def run_search(query, top_k, generate_description):
     description = ""
     if generate_description:
         top_row = reranked.iloc[0]
-        img_path = os.path.join(IMAGE_DIR, f"{top_row['id']}.jpg")
-        context = build_grounded_context(top_row, img_path)
+        context = build_grounded_context(top_row)
         description = generate_with_phi3(context, phi_tokenizer, phi_model)
         description = f"**Top result — AI-generated description:**\n\n{description}"
 
@@ -49,7 +48,7 @@ with gr.Blocks(title="Visual Product Search") as demo:
         query_box = gr.Textbox(label="Search query", placeholder="e.g. formal shirt, elegant dress")
         top_k_slider = gr.Slider(minimum=1, maximum=10, value=6, step=1, label="Results to show")
 
-    describe_checkbox = gr.Checkbox(label="Generate AI description for top result (slower — runs BLIP + Phi-3)", value=False)
+    describe_checkbox = gr.Checkbox(label="Generate AI description for top result (slower — runs Phi-3)", value=False)
     search_button = gr.Button("Search", variant="primary")
 
     gallery_output = gr.Gallery(label="Results (reranked)", columns=3, height="auto")

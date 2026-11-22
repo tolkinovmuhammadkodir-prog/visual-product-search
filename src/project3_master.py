@@ -105,47 +105,18 @@ logger.info("PHASE 1 complete.")
 
 
 # ============================================================
-# PHASE 1.5 — BLIP grounding
+# PHASE 2 — Grounded description generation (Phi-3-mini-4k-instruct)
+# The description is built ONLY from verified product metadata.
 # ============================================================
 
-logger.info("Loading BLIP...")
-from transformers import BlipProcessor, BlipForConditionalGeneration
 
-blip_processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
-blip_model = BlipForConditionalGeneration.from_pretrained(
-    "Salesforce/blip-image-captioning-base"
-).to(DEVICE)
-logger.info("BLIP loaded.")
-
-
-def generate_caption(image_path):
-    image = Image.open(image_path).convert("RGB")
-    inputs = blip_processor(image, return_tensors="pt").to(DEVICE)
-    with torch.no_grad():
-        out = blip_model.generate(**inputs, max_new_tokens=30)
-    return blip_processor.decode(out[0], skip_special_tokens=True)
-
-
-def build_grounded_context(row, image_path):
-    verified_facts = (
-        f"Product: {row['productDisplayName']}. Category: {row['articleType']}. "
-        f"Color: {row['baseColour']}. Gender: {row['gender']}. Usage: {row['usage']}."
-    )
-    visual_caption = generate_caption(image_path)
+def build_grounded_context(row):
     return (
-        f"VERIFIED PRODUCT DATA: {verified_facts}\n"
-        f"VISUAL OBSERVATION (may include background/model details, "
-        f"not just the product): {visual_caption}"
+        f"VERIFIED PRODUCT DATA: Product: {row['productDisplayName']}. "
+        f"Category: {row['articleType']}. Color: {row['baseColour']}. "
+        f"Gender: {row['gender']}. Usage: {row['usage']}."
     )
 
-
-logger.info("PHASE 1.5 complete.")
-
-
-# ============================================================
-# PHASE 2 — Generation (Phi-3-mini-4k-instruct)
-# Defined ONCE, with the return_dict fix already applied.
-# ============================================================
 
 logger.info("Loading Phi-3-mini-4k-instruct...")
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -161,10 +132,8 @@ def generate_with_phi3(grounded_context: str, tokenizer, model, max_new_tokens: 
     messages = [
         {"role": "user", "content": (
             "You are writing a short, accurate product description. "
-            "The VERIFIED PRODUCT DATA below is confirmed accurate — always trust it. "
-            "The VISUAL OBSERVATION is an AI-generated caption that may be wrong or "
-            "irrelevant — only mention details from it if they do NOT contradict the "
-            "verified data, and skip it entirely if it conflicts.\n\n"
+            "Use ONLY the VERIFIED PRODUCT DATA below. Do not add any detail that is "
+            "not stated there, such as material, fit, pattern, or features.\n\n"
             f"{grounded_context}\n\nWrite a 1-2 sentence product description now:"
         )}
     ]
@@ -177,24 +146,9 @@ def generate_with_phi3(grounded_context: str, tokenizer, model, max_new_tokens: 
     return tokenizer.decode(output_ids[0][input_len:], skip_special_tokens=True)
 
 
-# Verified test cases — defined BEFORE they're used, unlike the pasted file
-true_extra_detail_context = (
-    "VERIFIED PRODUCT DATA: Product: Turtle Check Men Navy Blue Shirt. "
-    "Category: Shirts. Color: Navy Blue. Gender: Men. Usage: Casual.\n"
-    "VISUAL OBSERVATION (may include background/model details, not just "
-    "the product): the shirt has a button-down collar and rolled-up sleeves"
-)
-conflicting_context = (
-    "VERIFIED PRODUCT DATA: Product: Turtle Check Men Navy Blue Shirt. "
-    "Category: Shirts. Color: Navy Blue. Gender: Men. Usage: Casual.\n"
-    "VISUAL OBSERVATION (may include background/model details, not just "
-    "the product): a woman wearing a bright red dress"
-)
-
-logger.info("Test: true extra detail (should appear in output)")
-logger.info(f"  -> {generate_with_phi3(true_extra_detail_context, phi_tokenizer, phi_model)}")
-logger.info("Test: false conflicting caption (should be ignored)")
-logger.info(f"  -> {generate_with_phi3(conflicting_context, phi_tokenizer, phi_model)}")
+sample_row = subset_df.iloc[0]
+logger.info("Sample description for: %s", sample_row["productDisplayName"])
+logger.info(f"  -> {generate_with_phi3(build_grounded_context(sample_row), phi_tokenizer, phi_model)}")
 
 logger.info("PHASE 2 complete.")
 

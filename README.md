@@ -8,7 +8,7 @@ Given a text query like `"formal shirt"`, the system:
 
 1. **Retrieves** candidate products with CLIP embeddings + FAISS exact similarity search (`IndexFlatIP`)
 2. **Reranks** those candidates with a cross-encoder (`ms-marco-MiniLM-L-6-v2`) using rich text (title + category + color + usage), not just the title
-3. **Generates a grounded description** of the top result using BLIP (image captioning) + Phi-3-mini — the model is explicitly instructed to trust verified product metadata over the AI-generated visual caption when the two conflict, to avoid hallucinated details
+3. **Generates a grounded description** of the top result using Phi-3-mini — the model is given only verified product metadata and explicitly instructed not to add details that aren't in it, to avoid hallucinated claims
 4. Serves all of this through a Gradio web app
 
 ## Why the reranking step exists
@@ -21,7 +21,7 @@ At ~5,000 products, exact brute-force search is still fast and gives perfect acc
 
 ## Why the description generation is "grounded"
 
-Image captioning models (like BLIP) can describe things in the photo that aren't about the product itself — background, a model's pose, unrelated details — and a language model freely elaborating on that caption can produce confident, specific-sounding, but false claims. Here, Phi-3 is prompted to treat structured product metadata as verified ground truth and the BLIP caption as untrusted secondary information, only using it when it does not conflict. Verified in testing: a deliberately conflicting caption (describing a different garment/color than the actual product) was correctly ignored in the generated description, while a true, non-conflicting visual detail was correctly included.
+A language model asked to "describe this product" will happily invent confident, specific-sounding details (material, fit, features) that nobody verified. Here, Phi-3 receives only the structured product metadata (name, category, colour, gender, usage) and is instructed to use nothing else, so that every claim in the description should trace back to a field in the catalogue. This is enforced by the prompt, not guaranteed: a language model can still occasionally add unstated details. Decoding is greedy (`do_sample=False`), so the same product always gets the same description.
 
 ## Architecture
 
@@ -38,7 +38,7 @@ Cross-encoder reranker (title + category + color + usage)
 Reranked results ──► Gradio gallery
     │
     ▼ (optional, top result only)
-BLIP caption + verified metadata ──► Phi-3-mini ──► grounded description
+Verified metadata ──► Phi-3-mini ──► grounded description
 ```
 
 ## Tech stack
@@ -46,7 +46,6 @@ BLIP caption + verified metadata ──► Phi-3-mini ──► grounded descrip
 - **CLIP** (ViT-B/32) — image/text embeddings
 - **FAISS** — similarity search
 - **sentence-transformers cross-encoder** (`ms-marco-MiniLM-L-6-v2`) — reranking
-- **BLIP** (`blip-image-captioning-base`) — visual captioning
 - **Phi-3-mini-4k-instruct** — grounded description generation
 - **Gradio** — web interface
 
@@ -60,7 +59,7 @@ pip install gradio
 pip install -r requirements.txt
 ```
 
-Requires a GPU runtime (e.g. Colab/Kaggle with a T4) for reasonable speed — CLIP, BLIP, and Phi-3 are all loaded at once.
+Requires a GPU runtime (e.g. Colab/Kaggle with a T4) for reasonable speed — CLIP and Phi-3 are both loaded at once.
 
 ## Running
 
@@ -73,7 +72,7 @@ python gradio_app.py        # launches the web app (run in the same session so m
 
 ## Files
 
-- `project3_master.py` — dataset loading, CLIP embedding pipeline, FAISS index, BLIP grounding, Phi-3 generation, cross-encoder reranking
+- `project3_master.py` — dataset loading, CLIP embedding pipeline, FAISS index, grounded Phi-3 generation, cross-encoder reranking
 - `gradio_app.py` — web interface tying the above together
 - `requirements.txt` — Python dependencies
 
@@ -82,3 +81,4 @@ python gradio_app.py        # launches the web app (run in the same session so m
 - Dataset subset is 5,000 products (not the full dataset) — a deliberate scoping decision for free-tier compute, not a technical ceiling
 - No deployment optimization (ONNX/TensorRT export) — models run in native PyTorch/HuggingFace form
 - No production serving/monitoring layer — this is a demo/portfolio application, not a production service
+- The metadata-only description prompt has not yet been measured on a test set (e.g. counting how often a description adds a detail not in the metadata)
